@@ -47,12 +47,12 @@ type RunResponse struct {
 }
 
 func (r *RunTime) Run(ctx context.Context, req *RunRequest) (*RunResponse, error) {
-	memories,err := r.retrieverMemories(ctx, req.UserID, req.Input)
+	memories, err := r.retrieverMemories(ctx, req.UserID, req.Input)
 	if err != nil {
 		return nil, err
 	}
 
-	systemPrompt := buildSystemPrompt(req.SystemPrompt,memories)
+	systemPrompt := buildSystemPrompt(req.SystemPrompt, memories)
 	messages := []domain.Message{
 		{
 			Role:    domain.RoleSystem,
