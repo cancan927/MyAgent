@@ -1,0 +1,21 @@
+# JetBrains IDEs（IntelliJ IDEA、GoLand 等）
+.idea/
+*.iml
+*.ipr
+*.iws
+
+# Visual Studio Code
+.vscode/
+
+# Visual Studio
+.vs/
+*.suo
+*.user
+
+# Eclipse
+.classpath
+.project
+.settings/
+
+# Fleet
+.fleet/
