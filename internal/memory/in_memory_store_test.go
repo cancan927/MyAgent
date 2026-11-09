@@ -1,9 +1,138 @@
 package memory
 
 import (
+	"fmt"
+	"sync"
 	"testing"
 	"time"
 )
+
+func TestInMemoryStoreSave(t *testing.T) {
+	tests := []struct {
+		name    string
+		inputs  []Memory
+		wantIDs []string
+	}{
+		{
+			name: "同一用户相同类型和内容只保存一次",
+			inputs: []Memory{
+				{ID: "mem-1", UserID: "user-1", Type: MemoryTypeProfile, Content: "用户喜欢自然风景"},
+				{ID: "mem-2", UserID: "user-1", Type: MemoryTypeProfile, Content: "用户喜欢自然风景"},
+			},
+			wantIDs: []string{"mem-1"},
+		},
+		{
+			name: "相同用户和内容但类型不同可以保存",
+			inputs: []Memory{
+				{ID: "mem-1", UserID: "user-1", Type: MemoryTypeProfile, Content: "用户喜欢自然风景"},
+				{ID: "mem-2", UserID: "user-1", Type: MemoryTypeEpisodic, Content: "用户喜欢自然风景"},
+			},
+			wantIDs: []string{"mem-1", "mem-2"},
+		},
+		{
+			name: "不同用户的相同类型和内容可以保存",
+			inputs: []Memory{
+				{ID: "mem-1", UserID: "user-1", Type: MemoryTypeProfile, Content: "用户喜欢自然风景"},
+				{ID: "mem-2", UserID: "user-2", Type: MemoryTypeProfile, Content: "用户喜欢自然风景"},
+			},
+			wantIDs: []string{"mem-1", "mem-2"},
+		},
+		{
+			name: "同一用户和类型的不同内容可以保存",
+			inputs: []Memory{
+				{ID: "mem-1", UserID: "user-1", Type: MemoryTypeProfile, Content: "用户喜欢自然风景"},
+				{ID: "mem-2", UserID: "user-1", Type: MemoryTypeProfile, Content: "用户喜欢城市旅行"},
+			},
+			wantIDs: []string{"mem-1", "mem-2"},
+		},
+		{
+			name: "大小写不同的内容不视为完全相同",
+			inputs: []Memory{
+				{ID: "mem-1", UserID: "user-1", Type: MemoryTypeProfile, Content: "Go"},
+				{ID: "mem-2", UserID: "user-1", Type: MemoryTypeProfile, Content: "go"},
+			},
+			wantIDs: []string{"mem-1", "mem-2"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := NewInMemoryStore()
+			for i := range tt.inputs {
+				if err := store.Save(t.Context(), &tt.inputs[i]); err != nil {
+					t.Fatalf("Save() error = %v", err)
+				}
+			}
+
+			if len(store.memories) != len(tt.wantIDs) {
+				t.Fatalf("Save() stored %d memories, want %d: %#v", len(store.memories), len(tt.wantIDs), store.memories)
+			}
+			for _, wantID := range tt.wantIDs {
+				if _, ok := store.memories[wantID]; !ok {
+					t.Errorf("Save() did not retain memory %q", wantID)
+				}
+			}
+		})
+	}
+}
+
+func TestInMemoryStoreSaveDuplicateDoesNotModifyExistingMemory(t *testing.T) {
+	store := NewInMemoryStore()
+	original := &Memory{
+		ID:      "mem-1",
+		UserID:  "user-1",
+		Type:    MemoryTypeProfile,
+		Content: "用户喜欢自然风景",
+	}
+	if err := store.Save(t.Context(), original); err != nil {
+		t.Fatalf("Save() original error = %v", err)
+	}
+	want := store.memories[original.ID]
+
+	duplicate := &Memory{
+		ID:      "mem-2",
+		UserID:  original.UserID,
+		Type:    original.Type,
+		Content: original.Content,
+	}
+	if err := store.Save(t.Context(), duplicate); err != nil {
+		t.Fatalf("Save() duplicate error = %v", err)
+	}
+
+	got := store.memories[original.ID]
+	if got != want {
+		t.Errorf("Save() modified existing memory: got %#v, want %#v", got, want)
+	}
+}
+
+func TestInMemoryStoreSaveDeduplicatesConcurrentWrites(t *testing.T) {
+	store := NewInMemoryStore()
+	errCh := make(chan error, 32)
+	var wg sync.WaitGroup
+
+	for i := range 32 {
+		wg.Go(func() {
+			mem := &Memory{
+				ID:      fmt.Sprintf("mem-%d", i),
+				UserID:  "user-1",
+				Type:    MemoryTypeProfile,
+				Content: "用户喜欢自然风景",
+			}
+			if err := store.Save(t.Context(), mem); err != nil {
+				errCh <- err
+			}
+		})
+	}
+	wg.Wait()
+	close(errCh)
+
+	for err := range errCh {
+		t.Errorf("Save() error = %v", err)
+	}
+	if len(store.memories) != 1 {
+		t.Fatalf("Save() stored %d duplicate memories, want 1", len(store.memories))
+	}
+}
 
 func TestInMemoryStoreSearch(t *testing.T) {
 	older := time.Date(2026, time.November, 1, 10, 0, 0, 0, time.UTC)

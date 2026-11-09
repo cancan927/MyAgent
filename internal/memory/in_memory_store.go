@@ -34,10 +34,20 @@ func (s *InMemoryStore) Save(ctx context.Context, mem *Memory) error {
 		return ErrInvalidMemory
 	}
 
-	now := time.Now()
-
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	// 去重必须与写入使用同一把写锁，避免并发请求同时通过检查后重复保存。
+	for _, existing := range s.memories {
+		if existing.UserID == mem.UserID &&
+			existing.Type == mem.Type &&
+			existing.Content == mem.Content {
+			// 重复保存是幂等操作，不写入新记录，也不刷新原记录时间。
+			return nil
+		}
+	}
+
+	now := time.Now()
 
 	if old, ok := s.memories[mem.ID]; ok {
 		// 不是同一个 User 的记忆不放在一起
